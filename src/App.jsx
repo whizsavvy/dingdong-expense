@@ -5,7 +5,6 @@ import {
   Wallet,
   ArrowUpCircle,
   ArrowDownCircle,
-  Share2,
   Calendar,
   Settings,
   CreditCard,
@@ -13,8 +12,10 @@ import {
   MapPin,
   Tag,
   ChevronRight,
+  ChevronLeft,
   Download,
   Upload,
+  PieChart,
 } from 'lucide-react';
 import { supabase } from './supabase';
 
@@ -44,6 +45,17 @@ function sortTransactions(list) {
   });
 }
 
+function getMonthKey(dateStr) {
+  if (!dateStr || dateStr.length < 7) return '';
+  return dateStr.slice(0, 7);
+}
+
+function getMonthLabel(ym) {
+  if (!ym) return '';
+  const [y, m] = ym.split('-');
+  return `${y}년 ${parseInt(m, 10)}월`;
+}
+
 export default function App() {
   const [userName, setUserName] = useState(() => localStorage.getItem('ledger_user_name') || '');
   const [isNameSet, setIsNameSet] = useState(() => !!localStorage.getItem('ledger_user_name'));
@@ -62,6 +74,10 @@ export default function App() {
   const [type, setType] = useState('지출');
   const [place, setPlace] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('현금');
+
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
 
   const categories = {
     지출: ['식비', '간식·커피', '교통비', '쇼핑', '생활비', '공과금·통신', '의료·약', '미용', '문화·여가', '주유·차량', '교육', '저축·보험', '기타'],
@@ -139,11 +155,11 @@ export default function App() {
     const id = loginId.trim();
     const pw = loginPassword;
     if (!ALLOWED_IDS.includes(id)) {
-      setLoginError('딩부 또는 동이만 로그인할 수 있어요.');
+      setLoginError('ID 또는 비밀번호를 확인해 주세요.');
       return;
     }
     if (pw !== LOGIN_PASSWORD) {
-      setLoginError('비밀번호가 맞지 않아요.');
+      setLoginError('ID 또는 비밀번호를 확인해 주세요.');
       return;
     }
     localStorage.setItem('ledger_user_name', id);
@@ -284,9 +300,42 @@ export default function App() {
     }
   };
 
-  const totalIncome = transactions.filter((t) => t.type === '수입').reduce((acc, curr) => acc + curr.amount, 0);
-  const totalExpense = transactions.filter((t) => t.type === '지출').reduce((acc, curr) => acc + curr.amount, 0);
-  const balance = totalIncome - totalExpense;
+  // 선택한 달의 거래만
+  const monthTransactions = transactions.filter((t) => getMonthKey(t.date) === selectedMonth);
+
+  // 현금만: 잔액 = 현금 수입 - 현금 지출 (월별)
+  const cashIncome = monthTransactions
+    .filter((t) => t.type === '수입' && t.paymentMethod === '현금')
+    .reduce((acc, t) => acc + t.amount, 0);
+  const cashExpense = monthTransactions
+    .filter((t) => t.type === '지출' && t.paymentMethod === '현금')
+    .reduce((acc, t) => acc + t.amount, 0);
+  const cashBalance = cashIncome - cashExpense;
+
+  // 월별 수입 총액 (참고)
+  const totalIncome = monthTransactions.filter((t) => t.type === '수입').reduce((acc, t) => acc + t.amount, 0);
+
+  // 지출: 결제수단별 (현금 / 신용카드 / 기타) — 별도 표시
+  const expenseByMethod = monthTransactions
+    .filter((t) => t.type === '지출')
+    .reduce((acc, t) => {
+      const m = t.paymentMethod || '기타';
+      acc[m] = (acc[m] || 0) + t.amount;
+      return acc;
+    }, {});
+
+  // 지출: 카테고리별
+  const expenseByCategory = monthTransactions
+    .filter((t) => t.type === '지출')
+    .reduce((acc, t) => {
+      const c = t.category || '기타';
+      acc[c] = (acc[c] || 0) + t.amount;
+      return acc;
+    }, {});
+  const categoryEntries = Object.entries(expenseByCategory).sort((a, b) => b[1] - a[1]);
+
+  const totalExpense = monthTransactions.filter((t) => t.type === '지출').reduce((acc, t) => acc + t.amount, 0);
+  const monthList = sortTransactions(monthTransactions);
 
   // 로그인 화면 (미로그인 시에만)
   if (!isNameSet) {
@@ -296,16 +345,13 @@ export default function App() {
           <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-8 mx-auto">
             <Wallet className="text-slate-500" size={28} />
           </div>
-          <h1 className="text-xl font-semibold text-center text-slate-800 mb-1">우리 가계부</h1>
-          <p className="text-slate-400 text-center text-sm mb-8">
-            딩부, 동이만 로그인할 수 있어요. 비밀번호는 12318이에요.
-          </p>
+          <h1 className="text-xl font-semibold text-center text-slate-800 mb-8">우리 가계부</h1>
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-2">ID (이름)</label>
+              <label className="block text-xs font-medium text-slate-500 mb-2">ID</label>
               <input
                 type="text"
-                placeholder="딩부 또는 동이"
+                placeholder="ID 입력"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none transition-colors"
                 value={loginId}
                 onChange={(e) => { setLoginId(e.target.value); setLoginError(''); }}
@@ -397,28 +443,130 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-6 pt-8 pb-8 space-y-8">
-        {/* 잔액 카드 */}
-        <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium mb-2">현재 총 잔액</p>
-          <p className="text-4xl font-bold text-slate-800 tracking-tight mb-8">
-            {balance.toLocaleString()}
-            <span className="text-lg font-medium text-slate-500 ml-1">원</span>
+      <main className="max-w-lg mx-auto px-6 pt-6 pb-8 space-y-6">
+        {/* 월 선택 */}
+        <div className="flex items-center justify-center gap-4">
+          <button
+            type="button"
+            onClick={() => {
+              const [y, m] = selectedMonth.split('-').map(Number);
+              const prev = m === 1 ? [y - 1, 12] : [y, m - 1];
+              setSelectedMonth(`${prev[0]}-${String(prev[1]).padStart(2, '0')}`);
+            }}
+            className="p-2 rounded-xl text-slate-500 hover:bg-white hover:text-slate-700 border border-slate-200/80 transition-colors"
+            aria-label="이전 달"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <span className="text-base font-semibold text-slate-800 min-w-[120px] text-center">
+            {getMonthLabel(selectedMonth)}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const [y, m] = selectedMonth.split('-').map(Number);
+              const next = m === 12 ? [y + 1, 1] : [y, m + 1];
+              setSelectedMonth(`${next[0]}-${String(next[1]).padStart(2, '0')}`);
+            }}
+            className="p-2 rounded-xl text-slate-500 hover:bg-white hover:text-slate-700 border border-slate-200/80 transition-colors"
+            aria-label="다음 달"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+
+        {/* 현금 잔액 (현금만 기준, 월별) */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm">
+          <p className="text-xs text-slate-400 font-medium mb-1">현금 잔액 (이번 달)</p>
+          <p className={`text-3xl font-bold tracking-tight ${cashBalance >= 0 ? 'text-slate-800' : 'text-rose-600'}`}>
+            {cashBalance.toLocaleString()}
+            <span className="text-base font-medium text-slate-500 ml-1">원</span>
           </p>
-          <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-100">
+          <p className="text-xs text-slate-400 mt-1">현금 수입 − 현금 지출만 반영</p>
+          <div className="grid grid-cols-2 gap-4 mt-5 pt-5 border-t border-slate-100">
             <div>
-              <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5 mb-1">
-                <ArrowUpCircle size={14} className="text-slate-400" /> 수입
+              <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mb-0.5">
+                <Banknote size={12} /> 현금 수입
               </p>
-              <p className="text-lg font-semibold text-slate-800">{totalIncome.toLocaleString()}원</p>
+              <p className="text-lg font-semibold text-slate-800">{cashIncome.toLocaleString()}원</p>
             </div>
             <div>
-              <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5 mb-1">
-                <ArrowDownCircle size={14} className="text-slate-400" /> 지출
+              <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mb-0.5">
+                <Banknote size={12} /> 현금 지출
               </p>
-              <p className="text-lg font-semibold text-slate-600">{totalExpense.toLocaleString()}원</p>
+              <p className="text-lg font-semibold text-slate-600">{cashExpense.toLocaleString()}원</p>
             </div>
           </div>
+          {totalIncome > 0 && (
+            <p className="text-xs text-slate-400 mt-3 pt-3 border-t border-slate-50">
+              이번 달 총 수입(전체) {totalIncome.toLocaleString()}원
+            </p>
+          )}
+        </div>
+
+        {/* 지출: 결제수단별 (현금 / 신용카드 / 기타) */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <CreditCard size={16} className="text-slate-500" /> 결제수단별 지출
+          </h3>
+          <div className="space-y-3">
+            {['현금', '신용카드', '기타'].map((method) => {
+              const amt = expenseByMethod[method] || 0;
+              return (
+                <div key={method} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                  <span className="text-sm text-slate-600 flex items-center gap-2">
+                    {getMethodIcon(method)} {method}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-800 tabular-nums">{amt.toLocaleString()}원</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+            <span className="text-sm font-medium text-slate-500">총 지출</span>
+            <span className="text-base font-bold text-slate-800 tabular-nums">{totalExpense.toLocaleString()}원</span>
+          </div>
+        </div>
+
+        {/* 카테고리별 지출 */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <PieChart size={16} className="text-slate-500" /> 카테고리별 지출
+          </h3>
+          {categoryEntries.length === 0 ? (
+            <p className="text-sm text-slate-400 py-4 text-center">이번 달 지출 내역이 없어요.</p>
+          ) : (
+            <>
+              <div className="space-y-3">
+                {categoryEntries.map(([cat, amt]) => {
+                  const pct = totalExpense > 0 ? Math.round((amt / totalExpense) * 100) : 0;
+                  return (
+                    <div key={cat} className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-baseline gap-2 mb-1">
+                          <span className="text-sm font-medium text-slate-700 truncate">{cat}</span>
+                          <span className="text-sm font-semibold text-slate-800 tabular-nums shrink-0">
+                            {amt.toLocaleString()}원
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-slate-300 rounded-full transition-all"
+                            style={{ width: `${Math.max(pct, 2)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <span className="text-xs text-slate-400 tabular-nums w-10 text-right">{pct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                <span className="text-sm font-medium text-slate-500">합계</span>
+                <span className="text-base font-bold text-slate-800 tabular-nums">{totalExpense.toLocaleString()}원</span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* 입력 폼 */}
@@ -515,27 +663,27 @@ export default function App() {
           </form>
         </div>
 
-        {/* 최근 기록 */}
+        {/* 해당 월 기록 */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-slate-800">최근 기록</h2>
-            <span className="text-xs text-slate-400 font-medium">{transactions.length}건</span>
+            <h2 className="text-base font-semibold text-slate-800">{getMonthLabel(selectedMonth)} 기록</h2>
+            <span className="text-xs text-slate-400 font-medium">{monthList.length}건</span>
           </div>
 
           {loading ? (
             <div className="py-16 text-center">
               <p className="text-sm text-slate-400 font-medium">불러오는 중...</p>
             </div>
-          ) : transactions.length === 0 ? (
+          ) : monthList.length === 0 ? (
             <div className="py-16 bg-white rounded-2xl border border-dashed border-slate-200 text-center">
               <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-4">
                 <Tag size={22} className="text-slate-300" />
               </div>
-              <p className="text-sm text-slate-400 font-medium">아직 기록이 없어요.</p>
+              <p className="text-sm text-slate-400 font-medium">이번 달 기록이 없어요.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {transactions.map((t) => (
+              {monthList.map((t) => (
                 <div
                   key={t.id}
                   className="bg-white rounded-xl p-5 flex items-center justify-between border border-slate-200/80 shadow-sm hover:border-slate-200 transition-colors group"
