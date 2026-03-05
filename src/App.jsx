@@ -222,9 +222,13 @@ export default function App() {
 
     if (supabase && useSupabase) {
       const { error } = await supabase.from('transactions').delete().eq('id', id);
-      if (error) console.error('Delete error:', error);
+      if (error) {
+        console.error('Delete error:', error);
+        return;
+      }
+      setTransactions((prev) => sortTransactions(prev.filter((t) => String(t.id) !== String(id))));
     } else {
-      const next = sortTransactions(transactions.filter((t) => t.id !== id));
+      const next = sortTransactions(transactions.filter((t) => String(t.id) !== String(id)));
       setTransactions(next);
       localStorage.setItem(`${STORAGE_KEY}_${appId}`, JSON.stringify(next));
     }
@@ -300,19 +304,25 @@ export default function App() {
     }
   };
 
-  // 선택한 달의 거래만
+  // 선택한 달의 거래만 (해당 월 통계·목록용)
   const monthTransactions = transactions.filter((t) => getMonthKey(t.date) === selectedMonth);
 
-  // 현금만: 잔액 = 현금 수입 - 현금 지출 (월별)
-  const cashIncome = monthTransactions
+  // ~선택한 달 말일까지의 누적 거래 (보유금용)
+  const [selYear, selMonth] = selectedMonth.split('-').map(Number);
+  const lastDay = new Date(selYear, selMonth, 0).getDate();
+  const endDate = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+  const cumulativeTransactions = transactions.filter((t) => t.date && t.date <= endDate);
+
+  // 보유금: 현금만, ~선택월 말일까지 누적
+  const cashIncome = cumulativeTransactions
     .filter((t) => t.type === '수입' && t.paymentMethod === '현금')
     .reduce((acc, t) => acc + t.amount, 0);
-  const cashExpense = monthTransactions
+  const cashExpense = cumulativeTransactions
     .filter((t) => t.type === '지출' && t.paymentMethod === '현금')
     .reduce((acc, t) => acc + t.amount, 0);
   const cashBalance = cashIncome - cashExpense;
 
-  // 월별 수입 총액 (참고)
+  // 해당 월 수입 총액 (참고)
   const totalIncome = monthTransactions.filter((t) => t.type === '수입').reduce((acc, t) => acc + t.amount, 0);
 
   // 지출: 결제수단별 (현금 / 신용카드 / 기타) — 별도 표시
@@ -475,31 +485,31 @@ export default function App() {
           </button>
         </div>
 
-        {/* 현금 잔액 (현금만 기준, 월별) */}
+        {/* 보유금: 현금만, ~선택한 달 말일까지 누적 */}
         <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm">
-          <p className="text-xs text-slate-400 font-medium mb-1">현금 잔액 (이번 달)</p>
+          <p className="text-xs text-slate-400 font-medium mb-1">보유금 (현금 기준, ~{getMonthLabel(selectedMonth)} 누적)</p>
           <p className={`text-3xl font-bold tracking-tight ${cashBalance >= 0 ? 'text-slate-800' : 'text-rose-600'}`}>
             {cashBalance.toLocaleString()}
             <span className="text-base font-medium text-slate-500 ml-1">원</span>
           </p>
-          <p className="text-xs text-slate-400 mt-1">현금 수입 − 현금 지출만 반영</p>
+          <p className="text-xs text-slate-400 mt-1">현금 수입 − 현금 지출 누적</p>
           <div className="grid grid-cols-2 gap-4 mt-5 pt-5 border-t border-slate-100">
             <div>
               <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mb-0.5">
-                <Banknote size={12} /> 현금 수입
+                <Banknote size={12} /> 현금 수입(누적)
               </p>
               <p className="text-lg font-semibold text-slate-800">{cashIncome.toLocaleString()}원</p>
             </div>
             <div>
               <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mb-0.5">
-                <Banknote size={12} /> 현금 지출
+                <Banknote size={12} /> 현금 지출(누적)
               </p>
               <p className="text-lg font-semibold text-slate-600">{cashExpense.toLocaleString()}원</p>
             </div>
           </div>
           {totalIncome > 0 && (
             <p className="text-xs text-slate-400 mt-3 pt-3 border-t border-slate-50">
-              이번 달 총 수입(전체) {totalIncome.toLocaleString()}원
+              {getMonthLabel(selectedMonth)} 총 수입 {totalIncome.toLocaleString()}원
             </p>
           )}
         </div>
