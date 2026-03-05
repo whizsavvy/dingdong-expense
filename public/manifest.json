@@ -1,0 +1,10 @@
+{
+  "name": "dd-expense",
+  "short_name": "가계부",
+  "description": "와이프와 함께 쓰는 수기 가계부, 어디서나 입력 가능",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary"
+}
