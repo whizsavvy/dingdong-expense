@@ -10,7 +10,6 @@ import {
   Settings,
   CreditCard,
   Banknote,
-  Smartphone,
   MapPin,
   Tag,
   ChevronRight,
@@ -20,7 +19,9 @@ import {
 import { supabase } from './supabase';
 
 const STORAGE_KEY = 'ledger_data';
-const defaultAppId = 'ding-dong-ledger-shared';
+const APP_ID = '12318';
+const ALLOWED_IDS = ['딩부', '동이'];
+const LOGIN_PASSWORD = '12318';
 
 function rowToTransaction(row) {
   return {
@@ -46,9 +47,11 @@ function sortTransactions(list) {
 export default function App() {
   const [userName, setUserName] = useState(() => localStorage.getItem('ledger_user_name') || '');
   const [isNameSet, setIsNameSet] = useState(() => !!localStorage.getItem('ledger_user_name'));
-  const [appId, setAppId] = useState(() => localStorage.getItem('ledger_app_id') || defaultAppId);
-  const [tempAppId, setTempAppId] = useState(() => localStorage.getItem('ledger_app_id') || defaultAppId);
+  const [loginId, setLoginId] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const appId = APP_ID;
 
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -61,11 +64,11 @@ export default function App() {
   const [paymentMethod, setPaymentMethod] = useState('현금');
 
   const categories = {
-    지출: ['식비', '간식', '교통비', '쇼핑', '생활비', '정기결제', '병원', '미용', '게임', '문화', '주유', '딩비', '저축', '카드비', '기타'],
-    수입: ['수입', '이자', '부수입', '용돈', '기타'],
+    지출: ['식비', '간식·커피', '교통비', '쇼핑', '생활비', '공과금·통신', '의료·약', '미용', '문화·여가', '주유·차량', '교육', '저축·보험', '기타'],
+    수입: ['월급', '부수입', '이자·배당', '용돈', '기타'],
   };
 
-  const paymentMethods = ['현금', '신용카드', '카카오페이', '체크카드', '기타'];
+  const paymentMethods = ['현금', '신용카드', '기타'];
 
   // Supabase: 데이터 불러오기 + 실시간 구독
   const fetchAndSubscribe = useCallback(() => {
@@ -130,15 +133,33 @@ export default function App() {
     return () => {};
   }, [appId, useSupabase, fetchAndSubscribe]);
 
-  const handleSaveSettings = (e) => {
+  const handleLogin = (e) => {
     e.preventDefault();
-    if (userName.trim() && tempAppId.trim()) {
-      localStorage.setItem('ledger_user_name', userName.trim());
-      localStorage.setItem('ledger_app_id', tempAppId.trim());
-      setAppId(tempAppId.trim());
-      setIsNameSet(true);
-      setShowSettings(false);
+    setLoginError('');
+    const id = loginId.trim();
+    const pw = loginPassword;
+    if (!ALLOWED_IDS.includes(id)) {
+      setLoginError('딩부 또는 동이만 로그인할 수 있어요.');
+      return;
     }
+    if (pw !== LOGIN_PASSWORD) {
+      setLoginError('비밀번호가 맞지 않아요.');
+      return;
+    }
+    localStorage.setItem('ledger_user_name', id);
+    setUserName(id);
+    setIsNameSet(true);
+    setShowSettings(false);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('ledger_user_name');
+    setUserName('');
+    setIsNameSet(false);
+    setShowSettings(false);
+    setLoginId('');
+    setLoginPassword('');
+    setLoginError('');
   };
 
   const handleSubmit = async (e) => {
@@ -256,10 +277,7 @@ export default function App() {
     switch (method) {
       case '현금':
         return <Banknote size={14} />;
-      case '카카오페이':
-        return <Smartphone size={14} />;
       case '신용카드':
-      case '체크카드':
         return <CreditCard size={14} />;
       default:
         return <Tag size={14} />;
@@ -270,207 +288,218 @@ export default function App() {
   const totalExpense = transactions.filter((t) => t.type === '지출').reduce((acc, curr) => acc + curr.amount, 0);
   const balance = totalIncome - totalExpense;
 
-  if (!isNameSet || showSettings) {
+  // 로그인 화면 (미로그인 시에만)
+  if (!isNameSet) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-600 to-indigo-800 flex items-center justify-center p-6">
-        <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl">
-          <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6 mx-auto">
-            <Settings className="text-indigo-600" size={32} />
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-8">
+        <div className="bg-white rounded-3xl p-10 w-full max-w-sm shadow-sm border border-slate-200/80">
+          <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-8 mx-auto">
+            <Wallet className="text-slate-500" size={28} />
           </div>
-          <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">가계부 설정</h2>
-          <p className="text-slate-400 text-center text-sm mb-8 leading-relaxed">
-            와이프와 <strong className="text-indigo-600 font-bold">같은 가계부 ID</strong>를 쓰면
-            <br />
-            실시간으로 내역이 동기화돼요. (Supabase 설정 시)
+          <h1 className="text-xl font-semibold text-center text-slate-800 mb-1">우리 가계부</h1>
+          <p className="text-slate-400 text-center text-sm mb-8">
+            딩부, 동이만 로그인할 수 있어요. 비밀번호는 12318이에요.
           </p>
-          <form onSubmit={handleSaveSettings} className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 ml-2 uppercase tracking-widest">본인 이름</label>
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-2">ID (이름)</label>
               <input
                 type="text"
-                placeholder="예: 나, 동이"
-                className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none font-medium transition-all"
-                value={userName}
-                onChange={(e) => setUserName(e.target.value)}
+                placeholder="딩부 또는 동이"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none transition-colors"
+                value={loginId}
+                onChange={(e) => { setLoginId(e.target.value); setLoginError(''); }}
                 required
               />
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 ml-2 uppercase tracking-widest">가계부 공유 ID</label>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-2">비밀번호</label>
               <input
-                type="text"
-                placeholder="우리만의 비밀 ID"
-                className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none font-mono text-sm transition-all"
-                value={tempAppId}
-                onChange={(e) => setTempAppId(e.target.value)}
+                type="password"
+                placeholder="비밀번호"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none transition-colors"
+                value={loginPassword}
+                onChange={(e) => { setLoginPassword(e.target.value); setLoginError(''); }}
                 required
               />
             </div>
-            <button className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-[0.98] transition-all mt-4 flex items-center justify-center gap-2">
-              저장하고 시작하기 <ChevronRight size={18} />
-            </button>
-            {isNameSet && (
-              <button
-                type="button"
-                onClick={() => setShowSettings(false)}
-                className="w-full text-slate-400 py-2 text-sm font-semibold hover:text-slate-600"
-              >
-                닫기
-              </button>
+            {loginError && (
+              <p className="text-sm text-rose-500 font-medium">{loginError}</p>
             )}
+            <button
+              type="submit"
+              className="w-full bg-slate-800 text-white py-3.5 rounded-xl font-medium hover:bg-slate-700 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+            >
+              로그인 <ChevronRight size={18} />
+            </button>
           </form>
         </div>
       </div>
     );
   }
 
+  // 설정 패널 (로그인된 상태에서 설정 클릭 시): 로그아웃만
+  if (showSettings) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-8">
+        <div className="bg-white rounded-3xl p-10 w-full max-w-sm shadow-sm border border-slate-200/80">
+          <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-6 mx-auto">
+            <Settings className="text-slate-500" size={28} />
+          </div>
+          <h2 className="text-lg font-semibold text-center text-slate-800 mb-1">설정</h2>
+          <p className="text-slate-400 text-center text-sm mb-8">{userName}으로 로그인됨</p>
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full bg-slate-800 text-white py-3.5 rounded-xl font-medium hover:bg-slate-700 active:scale-[0.99] transition-all"
+            >
+              로그아웃
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSettings(false)}
+              className="w-full text-slate-400 py-3 text-sm font-medium hover:text-slate-600"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-36">
-      <header className="bg-white/80 backdrop-blur-lg border-b sticky top-0 z-30 shadow-sm">
-        <div className="max-w-md mx-auto px-5 py-4 flex justify-between items-center">
+    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-40">
+      <header className="bg-white border-b border-slate-200/80 sticky top-0 z-30">
+        <div className="max-w-lg mx-auto px-6 py-5 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
+            <div className="w-11 h-11 bg-slate-800 rounded-2xl flex items-center justify-center">
               <Wallet className="text-white" size={22} />
             </div>
             <div>
-              <h1 className="text-base font-black leading-tight tracking-tight">우리 가계부</h1>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[9px] font-bold text-white bg-indigo-400 px-1.5 py-0.5 rounded uppercase tracking-tighter">ID</span>
-                <span className="text-[10px] text-slate-400 font-bold truncate max-w-[120px]">{appId}</span>
-              </div>
+              <h1 className="text-lg font-semibold text-slate-800">우리 가계부</h1>
+              <p className="text-xs text-slate-400 mt-0.5">{userName}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {useSupabase && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="실시간 동기화" />
+            )}
             <button
               onClick={() => setShowSettings(true)}
-              className="p-2.5 text-slate-400 hover:bg-slate-100 rounded-full transition-all"
+              className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              aria-label="설정"
             >
               <Settings size={20} />
             </button>
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-slate-100/80 px-4 py-2 rounded-full border border-slate-200">
-              {useSupabase ? (
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" title="실시간 동기화 중" />
-              ) : (
-                <span className="w-2 h-2 rounded-full bg-amber-500" title="로컬 저장만 (Supabase 설정 시 동기화)" />
-              )}
-              {userName}
-            </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-md mx-auto px-5 mt-6 space-y-6">
-        <div className="bg-indigo-600 rounded-[2.5rem] p-8 text-white shadow-2xl shadow-indigo-100 relative overflow-hidden group">
-          <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:scale-110 transition-transform"></div>
-          <p className="text-indigo-100 text-sm font-bold mb-1 opacity-80">현재 총 잔액</p>
-          <h2 className="text-4xl font-black mb-8 tracking-tighter">
+      <main className="max-w-lg mx-auto px-6 pt-8 pb-8 space-y-8">
+        {/* 잔액 카드 */}
+        <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-sm">
+          <p className="text-sm text-slate-500 font-medium mb-2">현재 총 잔액</p>
+          <p className="text-4xl font-bold text-slate-800 tracking-tight mb-8">
             {balance.toLocaleString()}
-            <span className="text-xl ml-1 font-bold opacity-60">원</span>
-          </h2>
-          <div className="grid grid-cols-2 gap-6 pt-6 border-t border-white/20">
-            <div className="space-y-1">
-              <p className="text-[10px] text-indigo-200 flex items-center gap-1 font-black uppercase tracking-widest">
-                <ArrowUpCircle size={10} /> 수입
+            <span className="text-lg font-medium text-slate-500 ml-1">원</span>
+          </p>
+          <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-100">
+            <div>
+              <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5 mb-1">
+                <ArrowUpCircle size={14} className="text-slate-400" /> 수입
               </p>
-              <p className="text-lg font-black">{totalIncome.toLocaleString()}원</p>
+              <p className="text-lg font-semibold text-slate-800">{totalIncome.toLocaleString()}원</p>
             </div>
-            <div className="space-y-1">
-              <p className="text-[10px] text-indigo-200 flex items-center gap-1 font-black uppercase tracking-widest">
-                <ArrowDownCircle size={10} /> 지출
+            <div>
+              <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5 mb-1">
+                <ArrowDownCircle size={14} className="text-slate-400" /> 지출
               </p>
-              <p className="text-lg font-black text-rose-200">{totalExpense.toLocaleString()}원</p>
+              <p className="text-lg font-semibold text-slate-600">{totalExpense.toLocaleString()}원</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-[2.2rem] p-6 shadow-sm border border-slate-100">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="flex bg-slate-100/80 p-1.5 rounded-2xl">
+        {/* 입력 폼 */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="flex bg-slate-100 p-1 rounded-xl">
               <button
                 type="button"
-                className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${type === '지출' ? 'bg-white shadow-sm text-rose-600' : 'text-slate-400 hover:text-slate-600'}`}
-                onClick={() => {
-                  setType('지출');
-                  setCategory('식비');
-                }}
+                className={`flex-1 py-3 rounded-lg text-sm font-medium transition-all ${type === '지출' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                onClick={() => { setType('지출'); setCategory('식비'); }}
               >
                 지출
               </button>
               <button
                 type="button"
-                className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${type === '수입' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                onClick={() => {
-                  setType('수입');
-                  setCategory('수입');
-                }}
+                className={`flex-1 py-3 rounded-lg text-sm font-medium transition-all ${type === '수입' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                onClick={() => { setType('수입'); setCategory('월급'); }}
               >
                 수입
               </button>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">날짜</label>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-2">날짜</label>
                 <input
                   type="date"
-                  className="w-full bg-slate-50 border-2 border-transparent rounded-2xl p-3 text-sm font-bold focus:border-indigo-500 focus:bg-white outline-none transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-slate-300 focus:bg-white outline-none transition-colors"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                   required
                 />
               </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">카테고리</label>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-2">카테고리</label>
                 <select
-                  className="w-full bg-slate-50 border-2 border-transparent rounded-2xl p-3 text-sm font-bold focus:border-indigo-500 focus:bg-white outline-none appearance-none cursor-pointer"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-slate-300 focus:bg-white outline-none appearance-none cursor-pointer"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                 >
                   {categories[type].map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
+                    <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">금액</label>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-2">금액</label>
                 <input
                   type="number"
                   placeholder="0"
-                  className="w-full bg-slate-50 border-2 border-transparent rounded-2xl p-3 text-sm font-black focus:border-indigo-500 focus:bg-white outline-none transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:border-slate-300 focus:bg-white outline-none transition-colors"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   required
                 />
               </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">결제수단</label>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-2">결제수단</label>
                 <select
-                  className="w-full bg-slate-50 border-2 border-transparent rounded-2xl p-3 text-sm font-bold focus:border-indigo-500 focus:bg-white outline-none appearance-none cursor-pointer"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-slate-300 focus:bg-white outline-none appearance-none cursor-pointer"
                   value={paymentMethod}
                   onChange={(e) => setPaymentMethod(e.target.value)}
                 >
                   {paymentMethods.map((pm) => (
-                    <option key={pm} value={pm}>
-                      {pm}
-                    </option>
+                    <option key={pm} value={pm}>{pm}</option>
                   ))}
                 </select>
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">사용처 (상세 내역)</label>
-              <div className="relative group">
-                <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-500 transition-colors" />
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-2">사용처 (상세)</label>
+              <div className="relative">
+                <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="예: 스타벅스, 마트"
-                  className="w-full bg-slate-50 border-2 border-transparent rounded-2xl p-4 pl-12 text-sm font-medium focus:border-indigo-500 focus:bg-white outline-none transition-all shadow-inner"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-11 pr-4 py-3 text-sm focus:border-slate-300 focus:bg-white outline-none transition-colors"
                   value={place}
                   onChange={(e) => setPlace(e.target.value)}
                 />
@@ -479,65 +508,66 @@ export default function App() {
 
             <button
               type="submit"
-              className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-slate-800 active:scale-[0.97] transition-all shadow-xl shadow-slate-200"
+              className="w-full bg-slate-800 text-white py-3.5 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-slate-700 active:scale-[0.99] transition-all"
             >
-              <PlusCircle size={20} /> 새 내역 저장하기
+              <PlusCircle size={18} /> 새 내역 저장
             </button>
           </form>
         </div>
 
-        <div className="space-y-4 pt-4">
-          <div className="flex items-center justify-between px-2">
-            <h3 className="font-black text-slate-800 tracking-tight">최근 기록</h3>
-            <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">{transactions.length}건</span>
+        {/* 최근 기록 */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-slate-800">최근 기록</h2>
+            <span className="text-xs text-slate-400 font-medium">{transactions.length}건</span>
           </div>
 
           {loading ? (
-            <div className="py-20 text-center">
-              <div className="inline-block animate-bounce text-indigo-600 font-black text-xs uppercase tracking-widest">불러오는 중...</div>
+            <div className="py-16 text-center">
+              <p className="text-sm text-slate-400 font-medium">불러오는 중...</p>
             </div>
           ) : transactions.length === 0 ? (
-            <div className="py-20 bg-white rounded-[2.5rem] text-center border-2 border-dashed border-slate-100 flex flex-col items-center">
-              <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center mb-4">
-                <Tag size={24} className="text-slate-200" />
+            <div className="py-16 bg-white rounded-2xl border border-dashed border-slate-200 text-center">
+              <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <Tag size={22} className="text-slate-300" />
               </div>
-              <p className="text-slate-400 text-sm font-bold">아직 기록된 내역이 없네요.</p>
+              <p className="text-sm text-slate-400 font-medium">아직 기록이 없어요.</p>
             </div>
           ) : (
             <div className="space-y-3">
               {transactions.map((t) => (
                 <div
                   key={t.id}
-                  className="bg-white p-5 rounded-[2rem] flex items-center justify-between shadow-sm border border-slate-100 group hover:border-indigo-100 hover:shadow-md transition-all duration-300"
+                  className="bg-white rounded-xl p-5 flex items-center justify-between border border-slate-200/80 shadow-sm hover:border-slate-200 transition-colors group"
                 >
-                  <div className="flex items-center gap-4 overflow-hidden">
+                  <div className="flex items-center gap-4 min-w-0">
                     <div
-                      className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm transition-transform group-hover:scale-105 ${t.type === '지출' ? 'bg-rose-50 text-rose-500' : 'bg-indigo-50 text-indigo-500'}`}
+                      className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${t.type === '지출' ? 'bg-slate-100 text-slate-600' : 'bg-slate-100 text-slate-600'}`}
                     >
-                      {t.type === '지출' ? <ArrowDownCircle size={22} /> : <ArrowUpCircle size={22} />}
+                      {t.type === '지출' ? <ArrowDownCircle size={20} /> : <ArrowUpCircle size={20} />}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 mb-1 overflow-x-auto no-scrollbar">
-                        <span className="bg-slate-100 text-slate-600 text-[9px] font-black px-2 py-0.5 rounded whitespace-nowrap">{t.writer}</span>
-                        <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1 whitespace-nowrap">
-                          <Calendar size={10} /> {t.date}
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <span className="text-xs text-slate-500 font-medium">{t.writer}</span>
+                        <span className="text-xs text-slate-400 flex items-center gap-1">
+                          <Calendar size={12} /> {t.date}
                         </span>
-                        <span className="text-[9px] font-bold text-indigo-400 flex items-center gap-1 whitespace-nowrap uppercase">
+                        <span className="text-xs text-slate-400 flex items-center gap-1">
                           {getMethodIcon(t.paymentMethod)} {t.paymentMethod}
                         </span>
                       </div>
-                      <p className="font-black text-slate-800 leading-tight truncate text-sm">{t.place || t.category}</p>
-                      <p className="text-[10px] text-slate-400 font-bold mt-0.5">{t.category}</p>
+                      <p className="font-medium text-slate-800 truncate text-sm">{t.place || t.category}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{t.category}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0 ml-3">
-                    <p className={`font-black text-base ${t.type === '지출' ? 'text-slate-800' : 'text-indigo-600'}`}>
-                      {t.type === '지출' ? '-' : '+'}
-                      {t.amount.toLocaleString()}
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    <p className={`font-semibold text-sm tabular-nums ${t.type === '지출' ? 'text-slate-800' : 'text-slate-600'}`}>
+                      {t.type === '지출' ? '-' : '+'}{t.amount.toLocaleString()}
                     </p>
                     <button
                       onClick={() => deleteTransaction(t.id)}
-                      className="w-9 h-9 rounded-full flex items-center justify-center text-slate-200 hover:text-rose-500 hover:bg-rose-50 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      aria-label="삭제"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -549,38 +579,24 @@ export default function App() {
         </div>
       </main>
 
-      {/* 실시간 동기화 안내 / 백업용 내보내기·가져오기 */}
-      <div className="fixed bottom-6 left-0 right-0 max-w-md mx-auto px-6 z-40">
-        <div className="bg-slate-900/95 backdrop-blur-md text-white rounded-[1.8rem] p-4 shadow-2xl border border-white/10 ring-1 ring-white/5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="bg-indigo-500 p-2.5 rounded-xl shadow-lg shadow-indigo-500/20">
-              <Share2 size={18} />
-            </div>
-            <div>
-              <p className="text-[10px] text-indigo-400 font-black uppercase tracking-widest leading-none mb-1">
-                {useSupabase ? '실시간 동기화' : 'Supabase 설정하면 실시간 동기화'}
-              </p>
-              <p className="text-[11px] text-slate-200 font-bold tracking-tight">
-                {useSupabase
-                  ? '같은 가계부 ID 쓰면 와이프와 자동 동기화!'
-                  : '.env에 URL·키 넣으면 JSON 안 보내도 돼요'}
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={handleExport}
-              className="flex-1 flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl text-sm font-bold transition-all"
-            >
-              <Download size={18} /> 백업
-            </button>
-            <label className="flex-1 flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl text-sm font-bold cursor-pointer transition-all">
-              <Upload size={18} /> 가져오기
-              <input type="file" accept=".json,application/json" onChange={handleImport} className="hidden" />
-            </label>
-          </div>
+      {/* 하단: 백업 / 가져오기 */}
+      <div className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto px-6 py-4 bg-white/95 backdrop-blur border-t border-slate-200 z-40">
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={handleExport}
+            className="flex-1 flex items-center justify-center gap-2 bg-slate-100 text-slate-700 py-3 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors"
+          >
+            <Download size={18} /> 백업
+          </button>
+          <label className="flex-1 flex items-center justify-center gap-2 bg-slate-100 text-slate-700 py-3 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors cursor-pointer">
+            <Upload size={18} /> 가져오기
+            <input type="file" accept=".json,application/json" onChange={handleImport} className="hidden" />
+          </label>
         </div>
+        {useSupabase && (
+          <p className="text-xs text-slate-400 text-center mt-2">실시간 동기화 중</p>
+        )}
       </div>
     </div>
   );
