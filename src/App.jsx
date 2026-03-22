@@ -16,6 +16,8 @@ import {
   Download,
   Upload,
   PieChart,
+  X,
+  Pencil,
 } from 'lucide-react';
 import { supabase } from './supabase';
 
@@ -78,6 +80,9 @@ export default function App() {
   const now = new Date();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
+  const [topAmountsVisible, setTopAmountsVisible] = useState(false);
+  const [detailModal, setDetailModal] = useState(null);
+  const [editForm, setEditForm] = useState(null);
 
   const categories = {
     지출: ['식비', '간식·커피', '교통비', '쇼핑', '생활비', '공과금·통신', '의료·약', '미용', '문화·여가', '주유·차량', '교육', '저축·보험', '기타'],
@@ -148,6 +153,10 @@ export default function App() {
     }
     return () => {};
   }, [appId, useSupabase, fetchAndSubscribe]);
+
+  useEffect(() => {
+    setTopAmountsVisible(false);
+  }, [selectedMonth]);
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -232,6 +241,74 @@ export default function App() {
       setTransactions(next);
       localStorage.setItem(`${STORAGE_KEY}_${appId}`, JSON.stringify(next));
     }
+  };
+
+  const openEdit = (t) => {
+    setEditForm({
+      id: t.id,
+      date: t.date,
+      amount: String(t.amount),
+      category: t.category,
+      type: t.type,
+      place: t.place || '',
+      paymentMethod: t.paymentMethod || '현금',
+      writer: t.writer,
+      createdAt: t.createdAt,
+    });
+    setDetailModal(null);
+  };
+
+  const closeEdit = () => setEditForm(null);
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editForm) return;
+    const amt = parseInt(editForm.amount, 10);
+    if (!amt || Number.isNaN(amt) || amt <= 0) {
+      alert('금액을 확인해 주세요.');
+      return;
+    }
+
+    const placeVal = editForm.place.trim() || editForm.category;
+    const row = {
+      date: editForm.date,
+      amount: amt,
+      category: editForm.category,
+      type: editForm.type,
+      place: placeVal,
+      payment_method: editForm.paymentMethod,
+    };
+
+    const mergeLocal = (prev) =>
+      sortTransactions(
+        prev.map((tx) => {
+          if (String(tx.id) !== String(editForm.id)) return tx;
+          return {
+            ...tx,
+            date: row.date,
+            amount: row.amount,
+            category: row.category,
+            type: row.type,
+            place: row.place,
+            paymentMethod: row.payment_method,
+          };
+        })
+      );
+
+    if (supabase && useSupabase) {
+      const { error } = await supabase.from('transactions').update(row).eq('id', editForm.id);
+      if (error) {
+        console.error('Update error:', error);
+        alert('수정에 실패했어요. Supabase 설정을 확인해 주세요.');
+        return;
+      }
+      setTransactions((prev) => mergeLocal(prev));
+    } else {
+      const next = mergeLocal(transactions);
+      setTransactions(next);
+      localStorage.setItem(`${STORAGE_KEY}_${appId}`, JSON.stringify(next));
+    }
+    closeEdit();
   };
 
   const handleExport = () => {
@@ -346,6 +423,16 @@ export default function App() {
 
   const totalExpense = monthTransactions.filter((t) => t.type === '지출').reduce((acc, t) => acc + t.amount, 0);
   const monthList = sortTransactions(monthTransactions);
+
+  const detailModalList = detailModal
+    ? sortTransactions(
+        monthTransactions.filter((t) => {
+          if (t.type !== '지출') return false;
+          if (detailModal.mode === 'method') return (t.paymentMethod || '기타') === detailModal.key;
+          return t.category === detailModal.key;
+        })
+      )
+    : [];
 
   // 로그인 화면 (미로그인 시에만)
   if (!isNameSet) {
@@ -485,50 +572,72 @@ export default function App() {
           </button>
         </div>
 
-        {/* 보유금: 현금만, ~선택한 달 말일까지 누적 */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm">
+        {/* 보유금: 마스킹, 탭 시 표시 */}
+        <button
+          type="button"
+          onClick={() => setTopAmountsVisible((v) => !v)}
+          className="w-full text-left bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm active:bg-slate-50/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+        >
           <p className="text-xs text-slate-400 font-medium mb-1">보유금 (현금 기준, ~{getMonthLabel(selectedMonth)} 누적)</p>
-          <p className={`text-3xl font-bold tracking-tight ${cashBalance >= 0 ? 'text-slate-800' : 'text-rose-600'}`}>
-            {cashBalance.toLocaleString()}
-            <span className="text-base font-medium text-slate-500 ml-1">원</span>
+          <p className={`text-3xl font-bold tracking-tight min-h-[2.5rem] flex items-center ${topAmountsVisible ? (cashBalance >= 0 ? 'text-slate-800' : 'text-rose-600') : 'text-slate-500'}`}>
+            {topAmountsVisible ? (
+              <>
+                {cashBalance.toLocaleString()}
+                <span className="text-base font-medium text-slate-500 ml-1">원</span>
+              </>
+            ) : (
+              <span className="tracking-[0.35em] select-none">***</span>
+            )}
           </p>
-          <p className="text-xs text-slate-400 mt-1">현금 수입 − 현금 지출 누적</p>
+          <p className="text-xs text-slate-400 mt-1">
+            {topAmountsVisible ? '다시 탭하면 숨김' : '탭하면 금액 표시'}
+          </p>
           <div className="grid grid-cols-2 gap-4 mt-5 pt-5 border-t border-slate-100">
             <div>
               <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mb-0.5">
                 <Banknote size={12} /> 현금 수입(누적)
               </p>
-              <p className="text-lg font-semibold text-slate-800">{cashIncome.toLocaleString()}원</p>
+              <p className="text-lg font-semibold text-slate-800 min-h-[1.75rem]">
+                {topAmountsVisible ? `${cashIncome.toLocaleString()}원` : <span className="tracking-widest text-slate-400">***</span>}
+              </p>
             </div>
             <div>
               <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mb-0.5">
                 <Banknote size={12} /> 현금 지출(누적)
               </p>
-              <p className="text-lg font-semibold text-slate-600">{cashExpense.toLocaleString()}원</p>
+              <p className="text-lg font-semibold text-slate-600 min-h-[1.75rem]">
+                {topAmountsVisible ? `${cashExpense.toLocaleString()}원` : <span className="tracking-widest text-slate-400">***</span>}
+              </p>
             </div>
           </div>
           {totalIncome > 0 && (
             <p className="text-xs text-slate-400 mt-3 pt-3 border-t border-slate-50">
-              {getMonthLabel(selectedMonth)} 총 수입 {totalIncome.toLocaleString()}원
+              {getMonthLabel(selectedMonth)} 총 수입{' '}
+              {topAmountsVisible ? `${totalIncome.toLocaleString()}원` : <span className="tracking-widest">***</span>}
             </p>
           )}
-        </div>
+        </button>
 
         {/* 지출: 결제수단별 (현금 / 신용카드 / 기타) */}
         <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <CreditCard size={16} className="text-slate-500" /> 결제수단별 지출
           </h3>
-          <div className="space-y-3">
+          <div className="space-y-1">
             {['현금', '신용카드', '기타'].map((method) => {
               const amt = expenseByMethod[method] || 0;
               return (
-                <div key={method} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                <button
+                  key={method}
+                  type="button"
+                  onClick={() => setDetailModal({ mode: 'method', key: method })}
+                  className="w-full flex items-center justify-between py-3 px-2 -mx-2 rounded-xl border-b border-slate-50 last:border-0 text-left hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                >
                   <span className="text-sm text-slate-600 flex items-center gap-2">
                     {getMethodIcon(method)} {method}
                   </span>
                   <span className="text-sm font-semibold text-slate-800 tabular-nums">{amt.toLocaleString()}원</span>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -547,11 +656,16 @@ export default function App() {
             <p className="text-sm text-slate-400 py-4 text-center">이번 달 지출 내역이 없어요.</p>
           ) : (
             <>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {categoryEntries.map(([cat, amt]) => {
                   const pct = totalExpense > 0 ? Math.round((amt / totalExpense) * 100) : 0;
                   return (
-                    <div key={cat} className="flex items-center gap-3">
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setDetailModal({ mode: 'category', key: cat })}
+                      className="w-full flex items-center gap-3 p-2 -mx-2 rounded-xl text-left hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                    >
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-baseline gap-2 mb-1">
                           <span className="text-sm font-medium text-slate-700 truncate">{cat}</span>
@@ -566,8 +680,8 @@ export default function App() {
                           />
                         </div>
                       </div>
-                      <span className="text-xs text-slate-400 tabular-nums w-10 text-right">{pct}%</span>
-                    </div>
+                      <span className="text-xs text-slate-400 tabular-nums w-10 text-right shrink-0">{pct}%</span>
+                    </button>
                   );
                 })}
               </div>
@@ -718,11 +832,20 @@ export default function App() {
                       <p className="text-xs text-slate-400 mt-0.5">{t.category}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                  <div className="flex items-center gap-1 shrink-0 ml-3">
                     <p className={`font-semibold text-sm tabular-nums ${t.type === '지출' ? 'text-slate-800' : 'text-slate-600'}`}>
                       {t.type === '지출' ? '-' : '+'}{t.amount.toLocaleString()}
                     </p>
                     <button
+                      type="button"
+                      onClick={() => openEdit(t)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-slate-700 hover:bg-slate-100 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      aria-label="수정"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => deleteTransaction(t.id)}
                       className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                       aria-label="삭제"
@@ -736,6 +859,217 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* 상세 내역 팝업 (결제수단 / 카테고리) */}
+      {detailModal && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-[2px]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="detail-modal-title"
+          onClick={() => setDetailModal(null)}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-lg max-h-[min(80vh,560px)] shadow-xl border border-slate-200 flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+              <h2 id="detail-modal-title" className="text-base font-semibold text-slate-800 pr-2">
+                {detailModal.mode === 'method' ? (
+                  <span className="flex items-center gap-2">
+                    {getMethodIcon(detailModal.key)} {detailModal.key} 지출 상세
+                  </span>
+                ) : (
+                  <span>{detailModal.key} 지출 상세</span>
+                )}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setDetailModal(null)}
+                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="닫기"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-3">
+              {detailModalList.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-8">내역이 없어요.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {detailModalList.map((t) => (
+                    <li
+                      key={t.id}
+                      className="flex items-start justify-between gap-2 py-3 border-b border-slate-50 last:border-0"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800 truncate">{t.place || t.category}</p>
+                        <p className="text-xs text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span>{t.date}</span>
+                          <span>{t.writer}</span>
+                          <span className="flex items-center gap-0.5">{getMethodIcon(t.paymentMethod)} {t.paymentMethod}</span>
+                          {detailModal.mode === 'method' && <span>{t.category}</span>}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <p className="text-sm font-semibold text-slate-800 tabular-nums">-{t.amount.toLocaleString()}원</p>
+                        <button
+                          type="button"
+                          onClick={() => openEdit(t)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                          aria-label="수정"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/80 shrink-0">
+              <p className="text-xs text-slate-500 text-center">
+                {getMonthLabel(selectedMonth)} · {detailModalList.length}건
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 내역 수정 */}
+      {editForm && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-[2px]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-modal-title"
+          onClick={closeEdit}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-lg max-h-[min(90vh,640px)] shadow-xl border border-slate-200 flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+              <h2 id="edit-modal-title" className="text-base font-semibold text-slate-800">
+                내역 수정
+              </h2>
+              <button
+                type="button"
+                onClick={closeEdit}
+                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="닫기"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEdit} className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              <div className="flex bg-slate-100 p-1 rounded-xl">
+                <button
+                  type="button"
+                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${editForm.type === '지출' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                  onClick={() => {
+                    setEditForm((f) => {
+                      if (!f) return f;
+                      const next = { ...f, type: '지출', category: categories.지출.includes(f.category) ? f.category : '식비' };
+                      return next;
+                    });
+                  }}
+                >
+                  지출
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${editForm.type === '수입' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                  onClick={() => {
+                    setEditForm((f) => {
+                      if (!f) return f;
+                      const next = { ...f, type: '수입', category: categories.수입.includes(f.category) ? f.category : '월급' };
+                      return next;
+                    });
+                  }}
+                >
+                  수입
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5">날짜</label>
+                  <input
+                    type="date"
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm"
+                    value={editForm.date}
+                    onChange={(e) => setEditForm((f) => (f ? { ...f, date: e.target.value } : f))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5">카테고리</label>
+                  <select
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm"
+                    value={editForm.category}
+                    onChange={(e) => setEditForm((f) => (f ? { ...f, category: e.target.value } : f))}
+                  >
+                    {categories[editForm.type].map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5">금액</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium"
+                    value={editForm.amount}
+                    onChange={(e) => setEditForm((f) => (f ? { ...f, amount: e.target.value } : f))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5">결제수단</label>
+                  <select
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm"
+                    value={editForm.paymentMethod}
+                    onChange={(e) => setEditForm((f) => (f ? { ...f, paymentMethod: e.target.value } : f))}
+                  >
+                    {paymentMethods.map((pm) => (
+                      <option key={pm} value={pm}>{pm}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">사용처 (상세)</label>
+                <input
+                  type="text"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm"
+                  value={editForm.place}
+                  onChange={(e) => setEditForm((f) => (f ? { ...f, place: e.target.value } : f))}
+                  placeholder="사용처"
+                />
+              </div>
+              <p className="text-xs text-slate-400">작성자: {editForm.writer}</p>
+              <div className="flex gap-2 pt-2 pb-1">
+                <button
+                  type="button"
+                  onClick={closeEdit}
+                  className="flex-1 py-3 rounded-xl text-sm font-medium border border-slate-200 text-slate-600 hover:bg-slate-50"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 rounded-xl text-sm font-medium bg-slate-800 text-white hover:bg-slate-700"
+                >
+                  저장
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 하단: 백업 / 가져오기 */}
       <div className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto px-6 py-4 bg-white/95 backdrop-blur border-t border-slate-200 z-40">
