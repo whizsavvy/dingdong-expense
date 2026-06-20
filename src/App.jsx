@@ -92,29 +92,32 @@ export default function App() {
   const paymentMethods = ['현금', '신용카드', '기타'];
 
   // Supabase: 데이터 불러오기 + 실시간 구독
+  const refetchTransactions = useCallback(async () => {
+    if (!supabase || !appId) return { ok: false, error: null };
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('app_id', appId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Supabase fetch error:', error);
+      setTransactions([]);
+      setLoading(false);
+      return { ok: false, error };
+    }
+    setTransactions(sortTransactions((data || []).map(rowToTransaction)));
+    setLoading(false);
+    return { ok: true, error: null };
+  }, [appId]);
+
   const fetchAndSubscribe = useCallback(() => {
     if (!supabase || !appId) return () => {};
 
     let channel;
 
-    const fetchList = async () => {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('app_id', appId)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Supabase fetch error:', error);
-        setTransactions([]);
-      } else {
-        setTransactions(sortTransactions((data || []).map(rowToTransaction)));
-      }
-      setLoading(false);
-    };
-
-    fetchList();
+    refetchTransactions();
 
     channel = supabase
       .channel(`transactions:${appId}`)
@@ -127,7 +130,7 @@ export default function App() {
           filter: `app_id=eq.${appId}`,
         },
         () => {
-          fetchList();
+          refetchTransactions();
         }
       )
       .subscribe();
@@ -135,7 +138,7 @@ export default function App() {
     return () => {
       if (channel) supabase.removeChannel(channel);
     };
-  }, [appId]);
+  }, [appId, refetchTransactions]);
 
   useEffect(() => {
     if (useSupabase && supabase) {
@@ -230,9 +233,20 @@ export default function App() {
     if (!confirm('이 기록을 삭제할까요?')) return;
 
     if (supabase && useSupabase) {
-      const { error } = await supabase.from('transactions').delete().eq('id', id);
+      const { data, error } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', id)
+        .eq('app_id', appId)
+        .select('id');
+
       if (error) {
         console.error('Delete error:', error);
+        alert(`삭제에 실패했어요.\n${error.message}`);
+        return;
+      }
+      if (!data || data.length === 0) {
+        alert('삭제할 내역을 찾지 못했거나 권한이 없어요. Supabase에서 supabase-fix-update.sql 을 실행해 주세요.');
         return;
       }
       setTransactions((prev) => sortTransactions(prev.filter((t) => String(t.id) !== String(id))));
@@ -296,13 +310,27 @@ export default function App() {
       );
 
     if (supabase && useSupabase) {
-      const { error } = await supabase.from('transactions').update(row).eq('id', editForm.id);
+      const { data, error } = await supabase
+        .from('transactions')
+        .update(row)
+        .eq('id', editForm.id)
+        .eq('app_id', appId)
+        .select('*')
+        .maybeSingle();
+
       if (error) {
         console.error('Update error:', error);
-        alert('수정에 실패했어요. Supabase 설정을 확인해 주세요.');
+        alert(`수정에 실패했어요.\n${error.message}`);
         return;
       }
-      setTransactions((prev) => mergeLocal(prev));
+      if (!data) {
+        alert('수정할 내역을 찾지 못했거나 권한이 없어요. Supabase SQL Editor에서 supabase-fix-update.sql 을 실행해 주세요.');
+        return;
+      }
+      const updated = rowToTransaction(data);
+      setTransactions((prev) =>
+        sortTransactions(prev.map((tx) => (String(tx.id) === String(updated.id) ? updated : tx)))
+      );
     } else {
       const next = mergeLocal(transactions);
       setTransactions(next);

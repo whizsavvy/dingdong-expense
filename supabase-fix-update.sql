@@ -1,26 +1,11 @@
--- Supabase 대시보드 > SQL Editor 에서 이 내용을 붙여넣고 "Run" 실행하세요.
--- 한 번만 실행하면 됩니다.
+-- 수정/삭제가 안 될 때 Supabase SQL Editor에서 이 파일을 한 번 실행하세요.
+-- (이미 supabase-setup.sql 을 실행한 프로젝트용)
 
--- 1) 테이블 만들기
-create table if not exists public.transactions (
-  id uuid primary key default gen_random_uuid(),
-  app_id text not null,
-  date text not null,
-  amount integer not null,
-  category text not null,
-  type text not null,
-  place text,
-  payment_method text not null,
-  writer text not null,
-  created_at bigint not null
-);
-
--- 2) RLS + anon/authenticated 권한 (읽기·쓰기·수정·삭제)
-alter table public.transactions enable row level security;
-
+-- anon / authenticated 역할에 UPDATE·DELETE 권한 부여
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.transactions to anon, authenticated;
 
+-- 기존 정책 정리 후 개별 정책 재생성
 drop policy if exists "Allow all for transactions" on public.transactions;
 drop policy if exists "transactions_select" on public.transactions;
 drop policy if exists "transactions_insert" on public.transactions;
@@ -47,7 +32,3 @@ create policy "transactions_delete"
   on public.transactions for delete
   to anon, authenticated
   using (true);
-
--- 3) 실시간 구독용: 이 테이블을 실시간(Realtime) 대상에 포함
--- "already in publication" 에러가 나면 이미 추가된 거라 무시하면 됨
-alter publication supabase_realtime add table public.transactions;
